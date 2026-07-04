@@ -1,0 +1,404 @@
+// BookBuddy AI — Database Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & Users ───────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String?
+  name              String
+  avatarUrl         String?
+  googleId          String?   @unique
+  githubId          String?   @unique
+  emailVerified     Boolean   @default(false)
+  emailVerifyToken  String?
+  resetToken        String?
+  resetTokenExpiry  DateTime?
+  role              Role      @default(USER)
+  darkMode          Boolean   @default(false)
+  notificationsOn   Boolean   @default(true)
+  isSuspended       Boolean   @default(false)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  profile           Profile?
+  refreshTokens     RefreshToken[]
+  sessions          Session[]
+  favorites         Favorite[]
+  bookmarks         Bookmark[]
+  readingHistory    ReadingHistory[]
+  readingGoals      ReadingGoal[]
+  achievements      UserAchievement[]
+  notifications     Notification[]
+  aiConversations   AIConversation[]
+  reviews           Review[]
+  collections       Collection[]
+  notes             Note[]
+  highlights        Highlight[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+model Profile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  age               Int?
+  favoriteGenres    String[]
+  readingGoal       String?
+  weeklyReadingTime Int?     // hours
+  favoriteMovies    String?
+  favoriteAuthors   String?
+  preferredLanguage String   @default("English")
+  readingLevel      ReadingLevel @default(BEGINNER)
+  moodPreferences   String[]
+  favoriteThemes    String[]
+
+  personalityName   String?  // Explorer, Thinker, Dreamer, Scholar, Fantasy Lover, Mystery Hunter
+  personalityEmoji  String?
+  personalityDesc   String?
+
+  xp                Int      @default(0)
+  level             Int      @default(1)
+  streak            Int      @default(0)
+  longestStreak     Int      @default(0)
+  lastReadDate      DateTime?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+enum ReadingLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
+// ─── Books ──────────────────────────────────────────────────────
+
+model Book {
+  id                String   @id @default(uuid())
+  title             String
+  authorId          String
+  author            Author   @relation(fields: [authorId], references: [id])
+  publisherId       String?
+  publisher         Publisher? @relation(fields: [publisherId], references: [id])
+
+  coverUrl          String?
+  coverEmoji        String?
+  isbn              String?  @unique
+  description       String   @db.Text
+  aiSummary         String?  @db.Text
+  language          String   @default("English")
+  publicationYear   Int?
+  pageCount         Int?
+  readingTimeMins   Int?
+  difficulty        ReadingLevel @default(BEGINNER)
+  averageRating     Float    @default(0)
+  ratingCount       Int      @default(0)
+
+  genres            Genre[]   @relation("BookGenres")
+  keyLessons        String[]
+  strengths         String[]
+  weaknesses        String[]
+  idealReader       String?
+  movieAdaptation   String?
+
+  favorites         Favorite[]
+  bookmarks         Bookmark[]
+  readingHistory    ReadingHistory[]
+  reviews           Review[]
+  recommendations   Recommendation[]
+  collectionItems   CollectionItem[]
+  notes             Note[]
+  highlights        Highlight[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+
+  @@index([title])
+  @@index([authorId])
+}
+
+model Author {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  bio       String? @db.Text
+  photoUrl  String?
+  books     Book[]
+}
+
+model Publisher {
+  id    String @id @default(uuid())
+  name  String @unique
+  books Book[]
+}
+
+model Genre {
+  id    String @id @default(uuid())
+  name  String @unique
+  books Book[] @relation("BookGenres")
+}
+
+// ─── User <-> Book interactions ────────────────────────────────
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, bookId])
+}
+
+model Bookmark {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  pageNumber Int?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, bookId])
+}
+
+model ReadingHistory {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId      String
+  book        Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  status      ReadStatus @default(READING)
+  progressPct Int      @default(0)
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  minutesRead Int      @default(0)
+
+  @@index([userId])
+  @@index([bookId])
+}
+
+enum ReadStatus {
+  WISHLIST
+  READING
+  COMPLETED
+  DROPPED
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  rating    Int      // 1-5
+  text      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([bookId])
+}
+
+// ─── Goals, Achievements, Gamification ─────────────────────────
+
+model ReadingGoal {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        GoalType
+  target      Int
+  progress    Int      @default(0)
+  periodStart DateTime
+  periodEnd   DateTime
+  completed   Boolean  @default(false)
+}
+
+enum GoalType {
+  BOOKS_PER_MONTH
+  MINUTES_PER_WEEK
+  PAGES_PER_DAY
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String
+  icon        String
+  xpReward    Int      @default(0)
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id])
+  earnedAt      DateTime    @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+// ─── AI & Recommendations ──────────────────────────────────────
+
+model AIConversation {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String?
+  messages  Json     // [{ role, content, timestamp }]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Recommendation {
+  id         String   @id @default(uuid())
+  userId     String
+  bookId     String
+  book       Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  reason     String   @db.Text
+  source     RecSource
+  score      Float    @default(0)
+  shown      Boolean  @default(false)
+  clicked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum RecSource {
+  ONBOARDING
+  AI_SEARCH
+  MOOD
+  MOVIE
+  COLLABORATIVE
+}
+
+// ─── Library Organization ──────────────────────────────────────
+
+model Collection {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  emoji     String?
+  items     CollectionItem[]
+  createdAt DateTime @default(now())
+}
+
+model CollectionItem {
+  id           String     @id @default(uuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  bookId       String
+  book         Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  addedAt      DateTime   @default(now())
+
+  @@unique([collectionId, bookId])
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Highlight {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  text      String   @db.Text
+  pageNumber Int?
+  createdAt DateTime @default(now())
+}
+
+// ─── Notifications & Admin ──────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Analytics {
+  id        String   @id @default(uuid())
+  event     String
+  userId    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([event])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}

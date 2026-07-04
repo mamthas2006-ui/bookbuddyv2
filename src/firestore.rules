@@ -1,0 +1,158 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────────────────────
+    // 0. Global Safety Net: Default-Deny Catch-All
+    // ─────────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. Reusable Hardened Global Primitives
+    // ─────────────────────────────────────────────────────────────
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. Validation Blueprints (Anti-Update-Gap & Key Checks)
+    // ─────────────────────────────────────────────────────────────
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'name', 'role', 'createdAt'])
+        && data.id is string && data.id == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 256
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.role in ['USER', 'ADMIN']
+        && (data.role == 'USER' || isAdmin())
+        && data.createdAt is string;
+    }
+
+    function isValidBook(data) {
+      return data.keys().hasAll(['id', 'title', 'author', 'description', 'difficulty', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 300
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 200
+        && data.description is string && data.description.size() <= 5000
+        && data.difficulty in ['BEGINNER', 'INTERMEDIATE', 'ADVANCED']
+        && data.createdAt is string;
+    }
+
+    function isValidReview(data, bookId) {
+      return data.keys().hasAll(['id', 'userId', 'bookId', 'rating', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId == request.auth.uid
+        && data.bookId is string && data.bookId == bookId
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && (!data.keys().hasAny(['text']) || (data.text is string && data.text.size() <= 2000))
+        && data.createdAt is string;
+    }
+
+    function isValidCollection(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'createdAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId == userId && data.userId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && (!data.keys().hasAny(['emoji']) || (data.emoji is string && data.emoji.size() <= 10))
+        && (!data.keys().hasAny(['bookIds']) || (data.bookIds is list && data.bookIds.size() <= 500))
+        && data.createdAt is string;
+    }
+
+    function isValidReadingHistory(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'bookId', 'status', 'progressPct', 'updatedAt'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId == userId && data.userId == request.auth.uid
+        && data.bookId is string && data.bookId.size() <= 128
+        && data.status in ['WISHLIST', 'READING', 'COMPLETED', 'DROPPED']
+        && data.progressPct is number && data.progressPct >= 0 && data.progressPct <= 100
+        && (!data.keys().hasAny(['minutesRead']) || (data.minutesRead is number && data.minutesRead >= 0))
+        && data.updatedAt is string;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. Collection Rules & Master Gate Patterns
+    // ─────────────────────────────────────────────────────────────
+
+    // Users Collection (Profile & Gamification)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && (
+        isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'level', 'xp', 'streakDays'])
+      );
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+
+      // Subcollection: User Custom Collections / Reading Lists
+      match /collections/{collectionId} {
+        allow get: if isValidId(userId) && isValidId(collectionId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (isOwner(userId) || isAdmin());
+        
+        allow create: if isValidId(userId) && isValidId(collectionId) && isOwner(userId) 
+                      && isValidCollection(incoming(), userId)
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isValidId(userId) && isValidId(collectionId) && isOwner(userId) 
+                      && isValidCollection(incoming(), userId)
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'emoji', 'bookIds']);
+        allow delete: if isValidId(userId) && isValidId(collectionId) && (isOwner(userId) || isAdmin());
+      }
+
+      // Subcollection: Reading History & Progress
+      match /history/{historyId} {
+        allow get: if isValidId(userId) && isValidId(historyId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (isOwner(userId) || isAdmin());
+        
+        allow create: if isValidId(userId) && isValidId(historyId) && isOwner(userId) 
+                      && isValidReadingHistory(incoming(), userId)
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isValidId(userId) && isValidId(historyId) && isOwner(userId) 
+                      && isValidReadingHistory(incoming(), userId)
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'progressPct', 'minutesRead', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(historyId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // Books Collection (Global Catalog)
+    match /books/{bookId} {
+      allow get: if isValidId(bookId) && isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isValidId(bookId) && isAdmin() && isValidBook(incoming());
+      allow update: if isValidId(bookId) && isAdmin() && isValidBook(incoming());
+      allow delete: if isValidId(bookId) && isAdmin();
+
+      // Subcollection: Book Reviews
+      match /reviews/{reviewId} {
+        allow get: if isValidId(bookId) && isValidId(reviewId) && isSignedIn();
+        allow list: if isValidId(bookId) && isSignedIn();
+        
+        allow create: if isValidId(bookId) && isValidId(reviewId) && isSignedIn() 
+                      && isValidReview(incoming(), bookId)
+                      && exists(/databases/$(database)/documents/books/$(bookId));
+        allow update: if isValidId(bookId) && isValidId(reviewId) && isSignedIn() 
+                      && existing().userId == request.auth.uid
+                      && isValidReview(incoming(), bookId)
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'text']);
+        allow delete: if isValidId(bookId) && isValidId(reviewId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+      }
+    }
+  }
+}

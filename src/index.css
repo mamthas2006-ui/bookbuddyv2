@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: #F5FBFF;
+  color: #1A202C;
+}
+
+.font-display {
+  font-family: 'Fraunces', serif;
+}

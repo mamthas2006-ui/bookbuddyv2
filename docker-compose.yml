@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  # 1. PostgreSQL Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: bookbuddy-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: bookbuddy_production
+      POSTGRES_USER: bookbuddy_admin
+      POSTGRES_PASSWORD: BookBuddySecureSecretPassword123!
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookbuddy_admin -d bookbuddy_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bookbuddy-network
+
+  # 2. Redis Caching & Rate Limiting Layer
+  redis:
+    image: redis:7-alpine
+    container_name: bookbuddy-redis
+    restart: always
+    command: redis-server --appendonly yes --requirepass RedisSecureSecretPassword123!
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "RedisSecureSecretPassword123!", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bookbuddy-network
+
+  # 3. BookBuddy AI Enterprise Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: bookbuddy-backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgresql://bookbuddy_admin:BookBuddySecureSecretPassword123!@postgres:5432/bookbuddy_production?schema=public&sslmode=disable"
+      REDIS_URL: "redis://:RedisSecureSecretPassword123!@redis:6379/0"
+      JWT_ACCESS_SECRET: "EnterpriseJwtAccessSecretKey99887766554433221100BookBuddyProd"
+      JWT_REFRESH_SECRET: "EnterpriseJwtRefreshSecretKey00112233445566778899BookBuddyProd"
+      JWT_ACCESS_EXPIRY: "15m"
+      JWT_REFRESH_EXPIRY: "7d"
+      APP_URL: "http://localhost:3000"
+      CLIENT_URL: "http://localhost:3000"
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX: 100
+      LOG_LEVEL: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/server/uploads
+    networks:
+      - bookbuddy-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+networks:
+  bookbuddy-network:
+    driver: bridge

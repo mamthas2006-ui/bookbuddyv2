@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and account preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user ID matching Firebase Auth UID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "name": { "type": "string", "description": "Display name" },
+        "role": { "type": "string", "enum": ["USER", "ADMIN"], "description": "User role" },
+        "level": { "type": "integer", "description": "Gamification reading level" },
+        "xp": { "type": "integer", "description": "Experience points earned" },
+        "streakDays": { "type": "integer", "description": "Current consecutive reading days streak" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" }
+      },
+      "required": ["id", "email", "name", "role", "createdAt"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "Book catalog entity with metadata and summaries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique book identifier" },
+        "title": { "type": "string", "description": "Book title" },
+        "author": { "type": "string", "description": "Author name" },
+        "description": { "type": "string", "description": "Detailed summary and description" },
+        "coverEmoji": { "type": "string", "description": "Emoji representation of book cover" },
+        "difficulty": { "type": "string", "enum": ["BEGINNER", "INTERMEDIATE", "ADVANCED"], "description": "Reading difficulty level" },
+        "averageRating": { "type": "number", "description": "Average user rating from 1 to 5" },
+        "publicationYear": { "type": "integer", "description": "Year of publication" },
+        "pageCount": { "type": "integer", "description": "Total number of pages" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "title", "author", "description", "difficulty", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User review and rating for a specific book",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique review ID" },
+        "userId": { "type": "string", "description": "User ID who wrote the review" },
+        "bookId": { "type": "string", "description": "Book ID being reviewed" },
+        "rating": { "type": "integer", "description": "Rating score between 1 and 5" },
+        "text": { "type": "string", "description": "Review comment text" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Review submission timestamp" }
+      },
+      "required": ["id", "userId", "bookId", "rating", "createdAt"]
+    },
+    "Collection": {
+      "title": "Collection",
+      "description": "User custom reading list or collection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique collection ID" },
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "name": { "type": "string", "description": "Collection name" },
+        "emoji": { "type": "string", "description": "Collection emoji icon" },
+        "bookIds": { "type": "array", "description": "Array of book IDs in collection" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "name", "createdAt"]
+    },
+    "ReadingHistory": {
+      "title": "ReadingHistory",
+      "description": "Tracks reading progress and status for a book by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique history entry ID" },
+        "userId": { "type": "string", "description": "User ID" },
+        "bookId": { "type": "string", "description": "Book ID" },
+        "status": { "type": "string", "enum": ["WISHLIST", "READING", "COMPLETED", "DROPPED"], "description": "Current reading status" },
+        "progressPct": { "type": "integer", "description": "Reading progress percentage from 0 to 100" },
+        "minutesRead": { "type": "integer", "description": "Total minutes spent reading" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last progress update timestamp" }
+      },
+      "required": ["id", "userId", "bookId", "status", "progressPct", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and gamification stats"
+    },
+    "/books/{bookId}": {
+      "schema": "Book",
+      "description": "Global catalog of available books"
+    },
+    "/books/{bookId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "User reviews and ratings subcollection under books"
+    },
+    "/users/{userId}/collections/{collectionId}": {
+      "schema": "Collection",
+      "description": "User custom reading lists subcollection"
+    },
+    "/users/{userId}/history/{historyId}": {
+      "schema": "ReadingHistory",
+      "description": "User reading progress and history subcollection"
+    }
+  }
+}
